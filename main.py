@@ -9,14 +9,16 @@ with open("config.json") as f:
 
 BOT_TOKEN = config["bot_token"]
 ADMIN_CHAT_ID = config["admin_chat_id"]
-BASE_LANDING_URL = "https://fortemax.store?wm="  # Можеш замінити на свій домен
+BASE_LANDING_URL = "https://site.com?wm="
+
+CPA_API_URL = "https://api.cpa.moe/ext/add.json?id=2594-1631fca8ff4515be7517265e1e62b755"
 
 app = Flask(__name__)
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Ініціалізація даних
 users = load_json("users.json")
 admin_auth = load_json("admin.json")
+leads = load_json("leads.json")
 admin_session = {"authorized": False}
 
 
@@ -53,7 +55,6 @@ def webhook():
         text = msg.get("text", "")
         is_admin = (chat_id == ADMIN_CHAT_ID)
 
-        # Реєстрація користувача
         if user_id not in users:
             wm_code = user_id[-4:]
             users[user_id] = {
@@ -65,27 +66,22 @@ def webhook():
 
         wm_link = f"{BASE_LANDING_URL}{users[user_id]['wm']}"
 
-        # /start
         if text == "/start":
             send_message(chat_id, f"👋 Вітаю, {msg['chat'].get('first_name', '')}!", get_keyboard(is_admin))
             return "ok"
 
-        # Моє посилання
         if text == "Моє посилання":
             send_message(chat_id, f"🔗 Ваше унікальне посилання:\n{wm_link}")
             return "ok"
 
-        # Статуси (заглушка)
         if text == "Статуси":
             send_message(chat_id, "🕐 Статуси заявок тимчасово недоступні. Скоро буде оновлення.")
             return "ok"
 
-        # Мова (заглушка)
         if text == "Мова":
             send_message(chat_id, "🌐 Поки що доступна тільки одна мова: українська.")
             return "ok"
 
-        # Адмін
         if text == "Адмін":
             if not is_admin:
                 send_message(chat_id, "⛔ Доступ заборонено.")
@@ -95,7 +91,6 @@ def webhook():
                 return send_admin_panel(chat_id)
             return "ok"
 
-        # Введення пароля
         if is_admin and not admin_session.get("authorized"):
             if text.strip() == admin_auth.get("password"):
                 admin_session["authorized"] = True
@@ -105,6 +100,73 @@ def webhook():
                 return "ok"
 
     return "ok"
+
+
+@app.route("/lead", methods=["POST"])
+def receive_lead():
+    data = request.json
+    wm = data.get("wm", "")
+    name = data.get("name", "")
+    phone = data.get("phone", "")
+    ip = data.get("ip", "")
+    ua = data.get("user_agent", "")
+    country = data.get("country", "")
+    referer = data.get("referer", "")
+    datetime = data.get("datetime", "")
+    us = data.get("utm_source", "")
+    um = data.get("utm_medium", "")
+    uc = data.get("utm_campaign", "")
+    ut = data.get("utm_term", "")
+    un = data.get("utm_content", "")
+
+    payload = {
+        "id": "auto",
+        "wm": wm,
+        "offer": "1639",
+        "name": name,
+        "phone": phone,
+        "ip": ip,
+        "ua": ua,
+        "country": country,
+        "currency": "EUR",
+        "us": us,
+        "um": um,
+        "uc": uc,
+        "ut": ut,
+        "un": un,
+        "params": {
+            "referer": referer,
+            "datetime": datetime
+        }
+    }
+
+    # Відправляємо заявку в CPA API
+    response = requests.post(CPA_API_URL, json=payload)
+    result = response.json()
+
+    # Якщо success → зберігаємо uid
+    if result.get("status") == "ok" and "uid" in result:
+        uid = result["uid"]
+        if wm not in leads:
+            leads[wm] = []
+        leads[wm].append(uid)
+        save_json("leads.json", leads)
+
+        # Знаходимо чат баєра
+        for user_id, info in users.items():
+            if info["wm"] == wm:
+                buyer_chat_id = int(user_id)
+                send_message(buyer_chat_id, f"🟢 Новий лід на <b>wm:{wm}</b>")
+                break
+
+        # Сповіщення тобі (адміну)
+        username = info.get("username", "невідомо")
+        first_name = info.get("first_name", "")
+        send_message(ADMIN_CHAT_ID, f"📥 Новий лід від <b>wm:{wm}</b> — <i>@{username} ({first_name})</i>")
+
+        return {"status": "ok", "uid": uid}, 200
+
+    return {"status": "error", "message": result.get("error", "Unknown error")}, 400
 
 
 def send_admin_panel(chat_id):
