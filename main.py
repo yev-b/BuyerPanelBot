@@ -66,7 +66,7 @@ def webhook():
 
         wm_link = f"{BASE_LANDING_URL}{users[user_id]['wm']}"
 
-        if text == "/start":
+        if text.startswith("/start"):
             first = msg['chat'].get('first_name', '')
 text = f"""
 👋 Привіт, {first}!
