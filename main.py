@@ -47,7 +47,7 @@ def delete_message(chat_id, message_id):
 
 
 def get_keyboard(is_admin=False):
-    base_buttons = ["📦 Оффери", "🔗 Мої посилання", "📊 Статуси", "🌐 Мова"]
+    base_buttons = ["📦 Оффери", "🔗 Мої посилання", "📊 Статистика", "🌐 Мова"]
     if is_admin:
         base_buttons.append("⚙️ Адмін")
     keyboard = [[{"text": b1}, {"text": b2}] if b2 else [{"text": b1}]
