@@ -69,8 +69,9 @@ def webhook():
         wm_link = f"{BASE_LANDING_URL}{users[user_id]['wm']}"
 
         if text.startswith("/start"):
-            first = msg['chat'].get('first_name', '')
-text = f"""
+if text.startswith("/start"):
+    first = msg['chat'].get('first_name', '')
+    welcome = f"""
 👋 Привіт, {first}!
 
 Ти підключений до панелі заливу 📲
@@ -83,6 +84,9 @@ text = f"""
 
 👇 Обери команду нижче:
 """
+    send_message(chat_id, welcome, get_keyboard(is_admin))
+    return "ok"
+
 send_message(chat_id, text, get_keyboard(is_admin))
 
             return "ok"
