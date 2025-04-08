@@ -9,7 +9,7 @@ with open("config.json") as f:
 
 BOT_TOKEN = config["bot_token"]
 ADMIN_CHAT_ID = config["admin_chat_id"]
-BASE_LANDING_URL = "https://site.com?wm="
+BASE_LANDING_URL = "https://fortemax.store?wm="
 
 CPA_API_URL = "https://api.cpa.moe/ext/add.json?id=2594-1631fca8ff4515be7517265e1e62b755"
 
@@ -33,14 +33,16 @@ def send_message(chat_id, text, reply_markup=None):
 
 
 def get_keyboard(is_admin=False):
-    buttons = [
-        [{"text": "Моє посилання"}],
-        [{"text": "Статуси"}],
-        [{"text": "Мова"}]
-    ]
+    base_buttons = ["Моє посилання", "Статуси", "Мова"]
     if is_admin:
-        buttons.append([{"text": "Адмін"}])
-    return {"keyboard": buttons, "resize_keyboard": True}
+        base_buttons.append("Адмін")
+
+    # Розбиваємо по 2 в ряд
+    keyboard = [[{"text": btn1}, {"text": btn2}] if btn2 else [{"text": btn1}]
+                for btn1, btn2 in zip(base_buttons[::2], base_buttons[1::2] + [None])]
+
+    return {"keyboard": keyboard, "resize_keyboard": True}
+
 
 
 @app.route('/webhook', methods=["POST"])
@@ -98,13 +100,11 @@ def webhook():
             return "ok"
 
         if text == "Адмін":
-            if not is_admin:
-                send_message(chat_id, "⛔ Доступ заборонено.")
-            elif not admin_session.get("authorized"):
-                send_message(chat_id, "🔒 Введіть пароль:")
-            else:
-                return send_admin_panel(chat_id)
-            return "ok"
+        if not is_admin:
+            send_message(chat_id, "⛔ Доступ заборонено.")
+        else:
+            return send_admin_panel(chat_id)
+        return "ok"
 
         if is_admin and not admin_session.get("authorized"):
             if text.strip() == admin_auth.get("password"):
@@ -120,7 +120,7 @@ def webhook():
 @app.route("/lead", methods=["POST"])
 def receive_lead():
     data = request.json
-    wm = data.get("wm", "")
+    wm = data.get("wm", "") or str(config.get("default_wm", "2594"))
     name = data.get("name", "")
     phone = data.get("phone", "")
     ip = data.get("ip", "")
