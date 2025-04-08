@@ -4,7 +4,7 @@ import requests
 
 app = Flask(__name__)
 
-TOKEN = "..."  # твій токен
+TOKEN = "7977859879:AAHXHPye3slD6S_TVSLdw-QmwiO0PXeOAa4"  # твій токен
 URL = f"https://api.telegram.org/bot{TOKEN}/"
 
 @app.route('/webhook', methods=['POST'])
