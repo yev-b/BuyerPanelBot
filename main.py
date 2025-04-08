@@ -9,7 +9,7 @@ with open("config.json") as f:
 
 BOT_TOKEN = config["bot_token"]
 ADMIN_CHAT_ID = config["admin_chat_id"]
-BASE_LANDING_URL = "https://site.com?wm="  # Можеш замінити на свій домен
+BASE_LANDING_URL = "https://fortemax.store?wm="  # Можеш замінити на свій домен
 
 app = Flask(__name__)
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
