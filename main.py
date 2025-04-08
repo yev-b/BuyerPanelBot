@@ -1,35 +1,123 @@
 from flask import Flask, request
-import json
 import requests
+import json
+from config import BOT_TOKEN, ADMIN_CHAT_ID, BASE_LANDING_URL
+from utils import load_json, save_json
 
 app = Flask(__name__)
+API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-TOKEN = "7977859879:AAHXHPye3slD6S_TVSLdw-QmwiO0PXeOAa4"  # твій токен
-URL = f"https://api.telegram.org/bot{TOKEN}/"
+users = load_json("users.json")
+admin_auth = load_json("admin.json")
+admin_session = {"authorized": False}
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    print("🔥 ОТРИМАНО ДАНІ ВІД TELEGRAM:")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
-
-        if text == "/start":
-            send_message(chat_id, "✅ Бот працює! Команда /start отримана.")
-        else:
-            send_message(chat_id, "ℹ️ Інше повідомлення отримано.")
-
-    return "OK"
-
-def send_message(chat_id, text):
-    payload = {
+def send_message(chat_id, text, reply_markup=None):
+    data = {
         "chat_id": chat_id,
-        "text": text
+        "text": text,
+        "parse_mode": "HTML"
     }
-    requests.post(URL + "sendMessage", json=payload)
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    requests.post(f"{API_URL}/sendMessage", data=data)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+
+def get_keyboard(is_admin=False):
+    buttons = [
+        [{"text": "Моє посилання"}],
+        [{"text": "Статуси"}],
+        [{"text": "Мова"}]
+    ]
+    if is_admin:
+        buttons.append([{"text": "Адмін"}])
+    return {"keyboard": buttons, "resize_keyboard": True}
+
+
+@app.route('/webhook', methods=["POST"])
+def webhook():
+    update = request.get_json()
+
+    if "message" in update:
+        msg = update["message"]
+        chat_id = msg["chat"]["id"]
+        user_id = str(chat_id)
+        text = msg.get("text", "")
+        is_admin = (chat_id == ADMIN_CHAT_ID)
+
+        # Реєстрація користувача
+        if user_id not in users:
+            wm_code = user_id[-4:]
+            users[user_id] = {
+                "wm": wm_code,
+                "username": msg["chat"].get("username", ""),
+                "first_name": msg["chat"].get("first_name", "")
+            }
+            save_json("users.json", users)
+
+        wm_link = f"{BASE_LANDING_URL}{users[user_id]['wm']}"
+
+        # /start
+        if text == "/start":
+            send_message(chat_id, f"👋 Вітаю, {msg['chat'].get('first_name', '')}!", get_keyboard(is_admin))
+            return "ok"
+
+        # Моє посилання
+        if text == "Моє посилання":
+            send_message(chat_id, f"🔗 Ваше унікальне посилання:\n{wm_link}")
+            return "ok"
+
+        # Статуси (заглушка)
+        if text == "Статуси":
+            send_message(chat_id, "🕐 Статуси заявок тимчасово недоступні. Скоро буде оновлення.")
+            return "ok"
+
+        # Мова (заглушка)
+        if text == "Мова":
+            send_message(chat_id, "🌐 Поки що доступна тільки одна мова: українська.")
+            return "ok"
+
+        # Адмін
+        if text == "Адмін":
+            if not is_admin:
+                send_message(chat_id, "⛔ Доступ заборонено.")
+            elif not admin_session.get("authorized"):
+                send_message(chat_id, "🔒 Введіть пароль:")
+            else:
+                return send_admin_panel(chat_id)
+            return "ok"
+
+        # Перевірка пароля
+        if is_admin and not admin_session.get("authorized"):
+            if text.strip() == admin_auth.get("password"):
+                admin_session["authorized"] = True
+                return send_admin_panel(chat_id)
+            else:
+                send_message(chat_id, "❌ Невірний пароль.")
+                return "ok"
+
+    return "ok"
+
+
+def send_admin_panel(chat_id):
+    user_count = len(users)
+    wm_list = "\n".join([f"{u['first_name']} → {u['wm']}" for u in users.values()])
+    text = f"""
+🛠️ <b>АДМІН ПАНЕЛЬ</b>
+
+👤 Кількість баєрів: {user_count}
+
+📋 Список:
+{wm_list}
+    """.strip()
+    send_message(chat_id, text)
+    return "ok"
+
+
+@app.route('/')
+def index():
+    return "Bot is running."
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
