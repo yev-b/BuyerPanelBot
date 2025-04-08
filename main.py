@@ -17,22 +17,23 @@ users = load_json("users.json")
 leads = load_json("leads.json")
 offers = load_json("offers.json")
 user_links = load_json("user_links.json")
-message_tracker = load_json("messages.json")  # для збереження ID повідомлень
+message_log = load_json("messages.json")
 
 
 def send_message(chat_id, text, reply_markup=None):
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
     res = requests.post(f"{API_URL}/sendMessage", json=data)
     if res.ok:
-        msg_id = res.json()["result"]["message_id"]
-        # Зберігаємо ID повідомлення для видалення
-        if str(chat_id) not in message_tracker:
-            message_tracker[str(chat_id)] = []
-        message_tracker[str(chat_id)].append(msg_id)
-        save_json("messages.json", message_tracker)
-        return msg_id
+        message_id = res.json()["result"]["message_id"]
+        message_log.setdefault(str(chat_id), []).append(message_id)
+        save_json("messages.json", message_log)
+        return message_id
     return None
 
 
@@ -43,13 +44,13 @@ def delete_message(chat_id, message_id):
     })
 
 
-def delete_tracked_messages(chat_id):
+def delete_previous_bot_messages(chat_id):
     chat_id_str = str(chat_id)
-    if chat_id_str in message_tracker:
-        for mid in message_tracker[chat_id_str]:
-            delete_message(chat_id, mid)
-        message_tracker[chat_id_str] = []
-        save_json("messages.json", message_tracker)
+    if chat_id_str in message_log:
+        for msg_id in message_log[chat_id_str]:
+            delete_message(chat_id, msg_id)
+        message_log[chat_id_str] = []
+        save_json("messages.json", message_log)
 
 
 def get_keyboard(is_admin=False):
@@ -77,7 +78,7 @@ def webhook():
 
     if user_id not in users:
         users[user_id] = {
-            "wm": user_id[-4:],
+            "wm": user_id[-4:] if user_id != DEFAULT_WM else DEFAULT_WM,
             "username": message["chat"].get("username", ""),
             "first_name": message["chat"].get("first_name", "")
         }
@@ -86,8 +87,8 @@ def webhook():
     wm = users[user_id]["wm"]
 
     if text == "/start" or text == "🔙 Назад":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         welcome = (
             f"👋 Привіт, {message['chat'].get('first_name', '')}!\n\n"
             "Ти підключений до панелі заливу 📲\n\n"
@@ -102,16 +103,16 @@ def webhook():
         return "ok"
 
     if text == "📦 Оффери":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         offer_buttons = [[{"text": offer["name"]}] for offer in offers.values()]
         offer_buttons.append([{"text": "🔙 Назад"}])
         send_message(chat_id, "📦 Обери оффер:", {"keyboard": offer_buttons, "resize_keyboard": True})
         return "ok"
 
     if text == "🔗 Мої посилання":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         links = user_links.get(user_id, [])
         if not links:
             send_message(chat_id, "❗ У вас ще немає збережених посилань.", {"keyboard": [[{"text": "🔙 Назад"}]]})
@@ -121,30 +122,29 @@ def webhook():
         return "ok"
 
     if text == "📊 Статистика":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         return get_lead_statuses(wm, chat_id)
 
     if text == "🌐 Мова":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         send_message(chat_id, "🌐 Поки що доступна лише українська 🇺🇦", {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
     if text == "⚙️ Адмін":
+        delete_previous_bot_messages(chat_id)
         delete_message(chat_id, msg_id)
-        delete_tracked_messages(chat_id)
         if is_admin:
             return send_admin_panel(chat_id)
         else:
             send_message(chat_id, "⛔ Доступ заборонено.", {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
-    # Обробка вибору оффера
     for offer_id, offer in offers.items():
         if text == offer["name"]:
+            delete_previous_bot_messages(chat_id)
             delete_message(chat_id, msg_id)
-            delete_tracked_messages(chat_id)
             link = f"{offer['domain']}?wm={wm}&offer={offer_id}"
             user_links.setdefault(user_id, [])
             if link not in user_links[user_id]:
