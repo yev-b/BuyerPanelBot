@@ -1,12 +1,20 @@
 from flask import Flask, request
 import requests
 import json
-from config import BOT_TOKEN, ADMIN_CHAT_ID, BASE_LANDING_URL
 from utils import load_json, save_json
+
+# Завантажуємо налаштування з config.json
+with open("config.json") as f:
+    config = json.load(f)
+
+BOT_TOKEN = config["bot_token"]
+ADMIN_CHAT_ID = config["admin_chat_id"]
+BASE_LANDING_URL = "https://site.com?wm="  # Можеш замінити на свій домен
 
 app = Flask(__name__)
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Ініціалізація даних
 users = load_json("users.json")
 admin_auth = load_json("admin.json")
 admin_session = {"authorized": False}
@@ -87,7 +95,7 @@ def webhook():
                 return send_admin_panel(chat_id)
             return "ok"
 
-        # Перевірка пароля
+        # Введення пароля
         if is_admin and not admin_session.get("authorized"):
             if text.strip() == admin_auth.get("password"):
                 admin_session["authorized"] = True
