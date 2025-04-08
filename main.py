@@ -21,7 +21,6 @@ admin_auth = load_json("admin.json")
 leads = load_json("leads.json")
 admin_session = {"authorized": False}
 
-
 def send_message(chat_id, text, reply_markup=None):
     data = {
         "chat_id": chat_id,
@@ -68,9 +67,9 @@ def webhook():
 
         wm_link = f"{BASE_LANDING_URL}{users[user_id]['wm']}"
 
-if text.startswith("/start"):
-    first = msg['chat'].get('first_name', '')
-    welcome = f"""
+        if text.startswith("/start"):
+            first = msg['chat'].get('first_name', '')
+            welcome = f"""
 👋 Привіт, {first}!
 
 Ти підключений до панелі заливу 📲
@@ -83,14 +82,7 @@ if text.startswith("/start"):
 
 👇 Обери команду нижче:
 """
-    send_message(chat_id, welcome, get_keyboard(is_admin))
-    return "ok"
-
-    send_message(chat_id, welcome, get_keyboard(is_admin))
-    return "ok"
-
-send_message(chat_id, text, get_keyboard(is_admin))
-
+            send_message(chat_id, welcome, get_keyboard(is_admin))
             return "ok"
 
         if text == "Моє посилання":
