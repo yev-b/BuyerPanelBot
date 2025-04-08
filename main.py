@@ -119,7 +119,7 @@ def webhook():
             })
         return "ok"
 
-    if text == "📊 Статуси":
+    if text == "📊 Статистика":
         delete_message(chat_id, message_id)
         return get_lead_statuses(user_wm, chat_id)
 
