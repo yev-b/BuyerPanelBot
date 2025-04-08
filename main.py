@@ -47,8 +47,10 @@ def get_keyboard(is_admin=False):
 @app.route('/webhook', methods=["POST"])
 def webhook():
     update = request.get_json()
+    print("👉 Отримали update:", update)
 
     if "message" in update:
+        print("✉️ Отримано message:", update["message"])
         msg = update["message"]
         chat_id = msg["chat"]["id"]
         user_id = str(chat_id)
