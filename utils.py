@@ -1,12 +1,12 @@
 import json
+import os
 
 def load_json(path):
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    if not os.path.exists(path):
         return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def save_json(path, data):
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
