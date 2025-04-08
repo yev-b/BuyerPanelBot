@@ -10,30 +10,46 @@ with open("config.json") as f:
 BOT_TOKEN = config["bot_token"]
 ADMIN_CHAT_ID = config["admin_chat_id"]
 DEFAULT_WM = config.get("default_wm", "2594")
+
 CPA_API_ADD = "https://api.cpa.moe/ext/add.json?id=2594-1631fca8ff4515be7517265e1e62b755"
 CPA_API_STATUS = "https://api.cpa.moe/ext/list.json?id=2594-1631fca8ff4515be7517265e1e62b755&ids="
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 users = load_json("users.json")
-admin_session = {"authorized": False}
 leads = load_json("leads.json")
 offers = load_json("offers.json")
+user_links = load_json("user_links.json")
+admin_session = {"authorized": False}
 
 app = Flask(__name__)
 
 
 def send_message(chat_id, text, reply_markup=None):
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
-    requests.post(f"{API_URL}/sendMessage", data=data)
+    response = requests.post(f"{API_URL}/sendMessage", data=data)
+    if response.ok:
+        return response.json().get("result", {}).get("message_id")
+    return None
+
+
+def delete_message(chat_id, message_id):
+    requests.post(f"{API_URL}/deleteMessage", data={
+        "chat_id": chat_id,
+        "message_id": message_id
+    })
 
 
 def get_keyboard(is_admin=False):
-    base_buttons = ["Оффери", "Моє посилання", "Статуси", "Мова"]
+    base_buttons = ["📦 Оффери", "🔗 Мої посилання", "📊 Статуси", "🌐 Мова"]
     if is_admin:
-        base_buttons.append("Адмін")
+        base_buttons.append("⚙️ Адмін")
     keyboard = [[{"text": b1}, {"text": b2}] if b2 else [{"text": b1}]
                 for b1, b2 in zip(base_buttons[::2], base_buttons[1::2] + [None])]
     return {"keyboard": keyboard, "resize_keyboard": True}
@@ -47,11 +63,11 @@ def webhook():
 
     msg = update["message"]
     chat_id = msg["chat"]["id"]
+    message_id = msg["message_id"]
     user_id = str(chat_id)
     text = msg.get("text", "")
     is_admin = (chat_id == ADMIN_CHAT_ID)
 
-    # реєстрація нового юзера
     if user_id not in users:
         wm_code = user_id[-4:]
         users[user_id] = {
@@ -63,11 +79,11 @@ def webhook():
 
     user_wm = users[user_id]["wm"]
 
-    # /start
-    if text.startswith("/start"):
-        name = msg["chat"].get("first_name", "")
+    if text.startswith("/start") or text == "🔙 Назад":
+        delete_message(chat_id, message_id)
+        first = msg["chat"].get("first_name", "")
         welcome = f"""
-👋 Привіт, {name}!
+👋 Привіт, {first}!
 
 Ти підключений до панелі заливу 📲
 
@@ -82,35 +98,59 @@ def webhook():
         send_message(chat_id, welcome, get_keyboard(is_admin))
         return "ok"
 
-    # кнопки
-    if text == "Моє посилання":
-        send_message(chat_id, f"🔗 Ваше посилання:\nhttps://fortemax.store?wm={user_wm}")
-        return "ok"
-
-    if text == "Мова":
-        send_message(chat_id, "🌐 Поки що доступна тільки українська.")
-        return "ok"
-
-    if text == "Адмін":
-        if is_admin:
-            return send_admin_panel(chat_id)
-        else:
-            send_message(chat_id, "⛔ Доступ заборонено.")
-        return "ok"
-
-    if text == "Оффери":
+    if text == "📦 Оффери":
+        delete_message(chat_id, message_id)
         offer_buttons = [[{"text": offer["name"]}] for offer in offers.values()]
+        offer_buttons.append([{"text": "🔙 Назад"}])
         send_message(chat_id, "📦 Обери оффер:", {"keyboard": offer_buttons, "resize_keyboard": True})
         return "ok"
 
-    if text == "Статуси":
+    if text == "🔗 Мої посилання":
+        delete_message(chat_id, message_id)
+        links = user_links.get(user_id, [])
+        if not links:
+            send_message(chat_id, "❗ У вас ще немає збережених посилань.", {
+                "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+            })
+        else:
+            formatted = "\n".join([f"🔗 {link}" for link in links])
+            send_message(chat_id, f"📌 Ваші посилання:\n{formatted}", {
+                "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+            })
+        return "ok"
+
+    if text == "📊 Статуси":
+        delete_message(chat_id, message_id)
         return get_lead_statuses(user_wm, chat_id)
 
-    # оффер обрано
+    if text == "🌐 Мова":
+        delete_message(chat_id, message_id)
+        send_message(chat_id, "🌐 Поки що доступна лише українська.", {
+            "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+        })
+        return "ok"
+
+    if text == "⚙️ Адмін":
+        delete_message(chat_id, message_id)
+        if is_admin:
+            return send_admin_panel(chat_id)
+        else:
+            send_message(chat_id, "⛔ Доступ заборонено.", {
+                "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+            })
+        return "ok"
+
     for offer_id, offer in offers.items():
         if text == offer["name"]:
+            delete_message(chat_id, message_id)
             link = f"{offer['domain']}?wm={user_wm}&offer={offer_id}"
-            send_message(chat_id, f"🔗 Посилання для <b>{offer['name']}</b>:\n{link}")
+            user_links.setdefault(user_id, [])
+            if link not in user_links[user_id]:
+                user_links[user_id].append(link)
+                save_json("user_links.json", user_links)
+            send_message(chat_id, f"🔗 Посилання для <b>{offer['name']}</b>:\n{link}", {
+                "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+            })
             return "ok"
 
     return "ok"
@@ -164,13 +204,14 @@ def receive_lead():
 def get_lead_statuses(wm, chat_id):
     uid_list = leads.get(wm, [])
     if not uid_list:
-        send_message(chat_id, "❗ У вас ще немає лідів.")
+        send_message(chat_id, "❗ У вас ще немає лідів.", {
+            "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+        })
         return "ok"
 
     try:
         url = CPA_API_STATUS + ",".join(uid_list)
-        response = requests.get(url)
-        result = response.json()
+        result = requests.get(url).json()
 
         statuses = {
             "Ожидает": "⏳ Очікує",
@@ -180,30 +221,30 @@ def get_lead_statuses(wm, chat_id):
             "Треш": "🗑️ Видалено"
         }
 
-        lines = []
-        for uid, info in result.get("leads", {}).items():
-            raw = info.get("status", "Невідомо")
-            display = statuses.get(raw, f"❓ {raw}")
-            lines.append(f"{display} — <code>{uid}</code>")
-
-        send_message(chat_id, "📊 <b>Статуси лідів:</b>\n" + "\n".join(lines))
+        lines = [f"{statuses.get(info['status'], '❓ Невідомо')} — <code>{uid}</code>"
+                 for uid, info in result.get("leads", {}).items()]
+        send_message(chat_id, "📊 <b>Статуси лідів:</b>\n" + "\n".join(lines), {
+            "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+        })
     except Exception as e:
-        send_message(chat_id, f"⚠️ Помилка при запиті: {e}")
+        send_message(chat_id, f"⚠️ Помилка при запиті: {e}", {
+            "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+        })
     return "ok"
 
 
 def send_admin_panel(chat_id):
     user_count = len(users)
     wm_list = "\n".join([f"{u['first_name']} → {u['wm']}" for u in users.values()])
-    text = f"""
+    send_message(chat_id, f"""
 🛠️ <b>АДМІН ПАНЕЛЬ</b>
 
 👤 Кількість баєрів: {user_count}
-
 📋 Список:
 {wm_list}
-    """.strip()
-    send_message(chat_id, text)
+    """.strip(), {
+        "keyboard": [[{"text": "🔙 Назад"}]], "resize_keyboard": True
+    })
     return "ok"
 
 
