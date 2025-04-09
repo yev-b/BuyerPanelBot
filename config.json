@@ -3,3 +3,10 @@
     "admin_chat_id": 631337265,
     "default_wm": "2594"
 }
+
+{
+  "bot_token": "7977859879:AAHXHPye3slD6S_TVSLdw-QmwiO0PXeOAa4",
+  "admin_chat_id": 631337265,
+  "webhook_url": "https://buyerpanelbot.onrender.com/webhook",
+  "capi_url": "capi-production-1013.up.railway.app"
+}
