@@ -18,6 +18,7 @@ leads = load_json("leads.json")
 offers = load_json("offers.json")
 user_links = load_json("user_links.json")
 messages = load_json("messages.json")
+pixels = load_json("pixels.json")
 
 
 def send_message(chat_id, text, reply_markup=None):
@@ -54,7 +55,8 @@ def delete_user_message(chat_id, message_id):
 def get_keyboard(is_admin=False):
     buttons = [
         [{"text": "📦 Оффери"}, {"text": "🔗 Мої посилання"}],
-        [{"text": "📊 Статистика"}, {"text": "🌐 Мова"}]
+        [{"text": "📊 Статистика"}, {"text": "🌐 Мова"}],
+        [{"text": "🎯 Мої пікселі"}]
     ]
     if is_admin:
         buttons.append([{"text": "⚙️ Адмін"}])
@@ -81,13 +83,16 @@ def webhook():
         users[user_id] = {
             "wm": user_id[-4:],
             "username": message["chat"].get("username", ""),
-            "first_name": message["chat"].get("first_name", "")
+            "first_name": message["chat"].get("first_name", ""),
+            "state": None
         }
         save_json("users.json", users)
 
     wm = users[user_id]["wm"]
 
     if text == "/start" or text == "🔙 Назад":
+        users[user_id]["state"] = None
+        save_json("users.json", users)
         welcome = (
             f"👋 Привіт, {message['chat'].get('first_name', '')}!\n\n"
             "Ти підключений до панелі заливу 📲\n\n"
@@ -95,6 +100,7 @@ def webhook():
             "🔗 — видає твоє унікальне посилання\n"
             "📊 — показує статистику лідів\n"
             "📥 — сповіщає про нові заявки\n"
+            "🎯 — керування Pixel ID\n"
             "⚙️ — доступ до адмінки (лише для боса)\n\n"
             "👇 Обери команду нижче:"
         )
@@ -134,6 +140,79 @@ def webhook():
                          {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
+    if text == "🎯 Мої пікселі":
+        users[user_id]["state"] = None
+        save_json("users.json", users)
+        pixel_menu = {
+            "keyboard": [
+                [{"text": "➕ Додати Pixel"}, {"text": "❌ Видалити Pixel"}],
+                [{"text": "🔙 Назад"}]
+            ],
+            "resize_keyboard": True
+        }
+        send_message(chat_id, "🎯 Обери дію з Pixel:", pixel_menu)
+        return "ok"
+
+    if text == "➕ Додати Pixel":
+        users[user_id]["state"] = "awaiting_pixel"
+        save_json("users.json", users)
+        send_message(chat_id, "📝 Введіть <b>Pixel ID</b> (15–16 цифр):", {"keyboard": [[{"text": "🔙 Назад"}]]})
+        return "ok"
+
+    if text == "❌ Видалити Pixel":
+        current_pixels = pixels.get(wm, [])
+        if not current_pixels:
+            send_message(chat_id, "ℹ️ У вас немає доданих Pixel.", {"keyboard": [[{"text": "🔙 Назад"}]]})
+            return "ok"
+
+        users[user_id]["state"] = "awaiting_pixel_delete"
+        save_json("users.json", users)
+
+        buttons = [[{"text": p}] for p in current_pixels]
+        buttons.append([{"text": "🔙 Назад"}])
+        send_message(chat_id, "❌ Оберіть Pixel для видалення:", {"keyboard": buttons, "resize_keyboard": True})
+        return "ok"
+
+    # --- Обробка додавання Pixel ---
+    if users[user_id].get("state") == "awaiting_pixel":
+        if not text.isdigit() or not 15 <= len(text) <= 16:
+            send_message(chat_id, "❌ Некоректний Pixel ID. Має бути 15–16 цифр.", {"keyboard": [[{"text": "🔙 Назад"}]]})
+            return "ok"
+
+        pixels.setdefault(wm, [])
+        if text not in pixels[wm]:
+            pixels[wm].append(text)
+            save_json("pixels.json", pixels)
+
+            try:
+                capi_url = "https://твій-capi-домен.up.railway.app/append_pixel"  # 🔁 Заміни на свій URL
+                requests.post(capi_url, json={"wm": wm, "pixel": text})
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Pixel збережено, але не надіслано в CAPI: {e}")
+
+            send_message(chat_id, f"✅ Pixel ID <code>{text}</code> додано!", {"keyboard": [[{"text": "🔙 Назад"}]]})
+            send_message(ADMIN_CHAT_ID, f"🆕 @{users[user_id]['username']} додав Pixel <code>{text}</code> (wm: {wm})")
+        else:
+            send_message(chat_id, "ℹ️ Цей Pixel вже був доданий.", {"keyboard": [[{"text": "🔙 Назад"}]]})
+
+        users[user_id]["state"] = None
+        save_json("users.json", users)
+        return "ok"
+
+    # --- Обробка видалення Pixel ---
+    if users[user_id].get("state") == "awaiting_pixel_delete":
+        if text in pixels.get(wm, []):
+            pixels[wm].remove(text)
+            save_json("pixels.json", pixels)
+            users[user_id]["state"] = None
+            save_json("users.json", users)
+            send_message(chat_id, f"🗑️ Pixel <code>{text}</code> видалено.",
+                         {"keyboard": [[{"text": "🔙 Назад"}]]})
+        else:
+            send_message(chat_id, "⚠️ Такий Pixel не знайдено.", {"keyboard": [[{"text": "🔙 Назад"}]]})
+        return "ok"
+
+    # --- Вибір оффера ---
     for offer_id, offer in offers.items():
         if text == offer["name"]:
             link = f"{offer['domain']}?wm={wm}&offer={offer_id}"
