@@ -267,6 +267,10 @@ def send_admin_panel(chat_id):
 def index():
     return "Bot is alive!"
 
+@app.route("/ping")
+def ping():
+    return "pong"
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
