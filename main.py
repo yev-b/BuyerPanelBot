@@ -1,6 +1,7 @@
 from flask import Flask, request
 import requests
 import json
+import os
 from utils import load_json, save_json
 
 # Завантаження конфігурації
@@ -9,13 +10,15 @@ with open("config.json") as f:
 
 BOT_TOKEN = config["bot_token"]
 ADMIN_CHAT_ID = config["admin_chat_id"]
+WEBHOOK_URL = config["webhook_url"]
 DEFAULT_WM = config.get("default_wm", "2594")
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-CAPI_URL = "https://capi-production-1013.up.railway.app"  # Твій CAPI endpoint
+CAPI_URL = config.get("capi_url", "https://capi-production-1013.up.railway.app")
 
+# Flask app
 app = Flask(__name__)
 
-# Завантаження всіх JSON
+# Завантаження баз
 users = load_json("users.json")
 leads = load_json("leads.json")
 offers = load_json("offers.json")
@@ -51,12 +54,23 @@ def delete_user_message(chat_id, message_id):
 def get_keyboard(is_admin=False):
     buttons = [
         [{"text": "📦 Оффери"}, {"text": "🔗 Мої посилання"}],
-        [{"text": "📊 Статистика"}, {"text": "🌐 Мова"}],
-        [{"text": "🎯 Мої пікселі"}]
+        [{"text": "📊 Статистика"}, {"text": "🎯 Мої пікселі"}]
     ]
     if is_admin:
         buttons.append([{"text": "⚙️ Адмін"}])
     return {"keyboard": buttons, "resize_keyboard": True}
+
+
+@app.route("/set_webhook")
+def set_webhook():
+    res = requests.get(f"{API_URL}/setWebhook?url={WEBHOOK_URL}/webhook")
+    return res.text
+
+
+@app.route("/", methods=["GET"])
+@app.route("/ping", methods=["GET"])
+def alive():
+    return "Bot is alive!"
 
 
 @app.route("/webhook", methods=["POST"])
@@ -91,17 +105,50 @@ def webhook():
         users[user_id].pop("temp_pixel", None)
         save_json("users.json", users)
         welcome = (
-            f"👋 Привіт, {message['chat'].get('first_name', '')}!\n\n"
-            "Ти підключений до панелі заливу 📲\n\n"
+            f"👋 Привіт, {users[user_id]['first_name']}!\n\n"
             "Цей бот:\n"
-            "🔗 — видає твоє унікальне посилання\n"
-            "📊 — показує статистику лідів\n"
-            "📥 — сповіщає про нові заявки\n"
+            "🔗 — видає твої посилання\n"
+            "📊 — статистика лідів\n"
             "🎯 — керування Pixel ID\n"
-            "⚙️ — доступ до адмінки (лише для боса)\n\n"
-            "👇 Обери команду нижче:"
+            "⚙️ — адмінка\n\n"
+            "👇 Обери дію:"
         )
         send_message(chat_id, welcome, get_keyboard(is_admin))
+        return "ok"
+
+    if text == "📦 Оффери":
+        buttons = [[{"text": offer["name"]}] for offer in offers]
+        buttons.append([{"text": "🔙 Назад"}])
+        users[user_id]["state"] = "choosing_offer"
+        save_json("users.json", users)
+        send_message(chat_id, "📦 Обери оффер:", {"keyboard": buttons, "resize_keyboard": True})
+        return "ok"
+
+    if users[user_id].get("state") == "choosing_offer":
+        selected = next((o for o in offers if o["name"] == text), None)
+        if selected:
+            link = f"{selected['url']}?wm={wm}"
+            user_links.setdefault(user_id, []).append({"offer": selected["name"], "link": link})
+            save_json("user_links.json", user_links)
+            send_message(chat_id, f"🔗 Твоє посилання:\n<code>{link}</code>")
+        else:
+            send_message(chat_id, "❌ Такого оффера немає.")
+        users[user_id]["state"] = None
+        save_json("users.json", users)
+        return "ok"
+
+    if text == "🔗 Мої посилання":
+        links = user_links.get(user_id, [])
+        if not links:
+            send_message(chat_id, "🔍 У тебе ще немає посилань.")
+        else:
+            msg = "\n\n".join([f"<b>{l['offer']}</b>:\n<code>{l['link']}</code>" for l in links])
+            send_message(chat_id, f"🔗 Твої посилання:\n\n{msg}")
+        return "ok"
+
+    if text == "📊 Статистика":
+        count = sum(1 for l in leads if leads[l]["wm"] == wm)
+        send_message(chat_id, f"📊 Кількість твоїх заявок: <b>{count}</b>")
         return "ok"
 
     if text == "🎯 Мої пікселі":
@@ -120,17 +167,17 @@ def webhook():
     if text == "➕ Додати Pixel":
         users[user_id]["state"] = "awaiting_pixel"
         save_json("users.json", users)
-        send_message(chat_id, "📝 Введи <b>Pixel ID</b> (15–16 цифр):", {"keyboard": [[{"text": "🔙 Назад"}]]})
+        send_message(chat_id, "📝 Введи <b>Pixel ID</b>:", {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
     if users[user_id].get("state") == "awaiting_pixel":
         if not text.isdigit():
-            send_message(chat_id, "❌ Некоректний Pixel ID", {"keyboard": [[{"text": "🔙 Назад"}]]})
+            send_message(chat_id, "❌ Pixel ID має бути числом!", {"keyboard": [[{"text": "🔙 Назад"}]]})
             return "ok"
         users[user_id]["temp_pixel"] = text
         users[user_id]["state"] = "awaiting_token"
         save_json("users.json", users)
-        send_message(chat_id, "🔐 Введи Access Token для цього Pixel:", {"keyboard": [[{"text": "🔙 Назад"}]]})
+        send_message(chat_id, "🔐 Введи Access Token:", {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
     if users[user_id].get("state") == "awaiting_token":
@@ -138,12 +185,12 @@ def webhook():
         token = text
         try:
             res = requests.post(f"{CAPI_URL}/add_pixel", json={"wm": wm, "pixel_id": pixel_id, "access_token": token})
-            if res.status_code == 200:
-                send_message(chat_id, f"✅ Pixel <code>{pixel_id}</code> додано до CAPI.")
+            if res.ok:
+                send_message(chat_id, f"✅ Pixel <code>{pixel_id}</code> додано.")
             else:
-                send_message(chat_id, f"⚠️ Помилка CAPI: {res.text}")
+                send_message(chat_id, f"❌ Помилка CAPI: {res.text}")
         except Exception as e:
-            send_message(chat_id, f"🚫 Не вдалося надіслати в CAPI: {e}")
+            send_message(chat_id, f"🚫 Не вдалося додати Pixel: {e}")
         users[user_id]["state"] = None
         users[user_id].pop("temp_pixel", None)
         save_json("users.json", users)
@@ -152,35 +199,31 @@ def webhook():
     if text == "❌ Видалити Pixel":
         users[user_id]["state"] = "awaiting_remove_pixel"
         save_json("users.json", users)
-        send_message(chat_id, "📝 Введи Pixel ID, який хочеш видалити:", {"keyboard": [[{"text": "🔙 Назад"}]]})
+        send_message(chat_id, "🗑️ Введи Pixel ID для видалення:", {"keyboard": [[{"text": "🔙 Назад"}]]})
         return "ok"
 
     if users[user_id].get("state") == "awaiting_remove_pixel":
         try:
             res = requests.post(f"{CAPI_URL}/remove_pixel", json={"wm": wm, "pixel_id": text})
-            if res.status_code == 200:
-                send_message(chat_id, f"🗑️ Pixel <code>{text}</code> видалено з CAPI.")
+            if res.ok:
+                send_message(chat_id, f"🗑️ Pixel <code>{text}</code> видалено.")
             else:
-                send_message(chat_id, f"❌ CAPI помилка: {res.text}")
+                send_message(chat_id, f"❌ Помилка при видаленні: {res.text}")
         except Exception as e:
-            send_message(chat_id, f"🚫 Видалення не вдалося: {e}")
+            send_message(chat_id, f"🚫 Видалити Pixel не вдалося: {e}")
         users[user_id]["state"] = None
         save_json("users.json", users)
         return "ok"
 
-    # решта логіки: оффери, статистика, мова, адмінка...
+    if text == "⚙️ Адмін" and is_admin:
+        total_users = len(users)
+        total_leads = len(leads)
+        send_message(chat_id, f"👑 <b>Адмінка:</b>\n👥 Користувачів: {total_users}\n📥 Заявок: {total_leads}")
+        return "ok"
+
     return "ok"
 
 
-@app.route("/")
-def index():
-    return "Bot is alive!"
-
-
-@app.route("/ping")
-def ping():
-    return "pong"
-
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
